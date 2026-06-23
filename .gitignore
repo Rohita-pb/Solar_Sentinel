@@ -1,0 +1,43 @@
+# Data files
+data/raw/
+data/processed/
+*.parquet
+*.cdf
+
+# Models
+models/checkpoints/
+models/*.pt
+models/*.pkl
+
+# Outputs
+outputs/plots/
+outputs/predictions/
+outputs/*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual env
+venv/
+env/
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/

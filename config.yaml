@@ -1,0 +1,167 @@
+# =============================================================================
+# ISRO PS14 - Energetic Particle Radiation Forecasting Configuration
+# =============================================================================
+
+data:
+  # GOES electron flux data
+  goes:
+    satellites: [13, 15]  # GOES-13 and GOES-15
+    base_url: "https://spdf.gsfc.nasa.gov/pub/data/goes"
+    variable_flux: "E2"  # >2 MeV integral electron flux
+    variable_proton: "P5"  # >10 MeV protons (for SPE filtering)
+
+  # Wind spacecraft solar wind data
+  wind:
+    swe_url: "https://spdf.gsfc.nasa.gov/pub/data/wind/swe/swe_k0"
+    mfi_url: "https://spdf.gsfc.nasa.gov/pub/data/wind/mfi/mfi_h0"
+    swe_variables: ["V_GSE", "Np"]  # Speed vector, density
+    mfi_variables: ["BGSE", "B3GSE"]  # Field magnitude, field components
+
+  # OMNIWeb geomagnetic indices
+  omniweb:
+    url: "https://omniweb.gsfc.nasa.gov/cgi/nx1.cgi"
+    variables: ["Kp", "Dst", "AE", "SYM_H", "F107"]
+    resolution: "hourly"  # hourly or 1min
+
+  # GRASP/GSAT-19 data (ISRO)
+  grasp:
+    source: "pradan"  # Downloaded manually from pradan.issdc.gov.in
+    format: "cdf"  # or "csv"
+
+  # Time range
+  start_year: 2011
+  end_year: 2021
+  resolution_minutes: 5
+
+  # Paths
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  cache_file: "data/processed/merged_dataset.parquet"
+
+# =============================================================================
+preprocessing:
+  spike_removal:
+    sigma_threshold: 3.0
+    window_hours: 6
+  
+  gap_handling:
+    max_linear_interp_hours: 2
+    max_spline_interp_hours: 6
+    min_valid_fraction: 0.8  # Skip windows with <80% valid data
+  
+  spe_filter:
+    proton_threshold_pfu: 10
+    exclusion_hours_before: 2
+    exclusion_hours_after: 24
+  
+  propagation:
+    l1_distance_Re: 235.0  # ~1.5 million km in Earth radii
+    default_vsw_kms: 400.0
+
+# =============================================================================
+features:
+  lookback_steps: 72   # 6 hours at 5-min resolution (Transformer)
+  lookback_steps_lstm: 72  # 6 hours (LSTM)
+  
+  target_horizons_steps: [6, 72, 144]  # 30min, 6h, 12h at 5-min resolution
+  target_horizons_labels: ["30min", "6h", "12h"]
+  
+  rolling_windows_hours: [1, 3, 6, 12, 24]
+  
+  input_features:
+    - "log10_flux"
+    - "Vsw"
+    - "Np"
+    - "Bx_GSE"
+    - "By_GSM"
+    - "Bz_GSM"
+    - "Bt"
+    - "Kp"
+    - "Dst"
+    - "AE"
+    - "SYM_H"
+    - "Pdyn"
+    - "Ey"
+    - "Newell_CF"
+    - "epsilon"
+    - "ULF_proxy"
+    - "Vsw_mean_3h"
+    - "Vsw_mean_24h"
+    - "Bz_min_6h"
+    - "Pdyn_max_6h"
+    - "AE_mean_3h"
+    - "flux_diff_1h"
+    - "flux_rolling_std_6h"
+    - "hour_sin"
+    - "hour_cos"
+    - "doy_sin"
+    - "doy_cos"
+    - "bartels_sin"
+    - "bartels_cos"
+
+# =============================================================================
+model:
+  type: "transformer"  # PRIMARY model for hackathon
+
+  transformer:
+    d_model: 64
+    nhead: 4
+    num_encoder_layers: 3
+    num_decoder_layers: 2
+    dim_feedforward: 256
+    dropout: 0.1
+    activation: "gelu"
+  
+  lstm:
+    hidden_size: 64
+    num_layers: 2
+    bidirectional: true
+    dropout: 0.2
+
+# =============================================================================
+training:
+  batch_size: 128
+  learning_rate: 0.001
+  weight_decay: 0.00001
+  max_epochs: 50
+  patience: 12
+  grad_clip_norm: 1.0
+  
+  scheduler:
+    type: "cosine_warm_restarts"
+    T_0: 10
+    T_mult: 2
+  
+  # Chronological split (no data leakage)
+  split:
+    train_years: [2011, 2018]   # 8 years
+    val_years: [2019, 2020]     # 2 years
+    test_years: [2021, 2021]    # 1 year
+  
+  # Mixed precision — only activates on CUDA
+  use_amp: true
+  
+  # Checkpointing
+  checkpoint_dir: "models/checkpoints"
+  best_model_path: "models/best_model.pt"
+
+# =============================================================================
+evaluation:
+  metrics: ["PE", "RMSE_log", "Pearson_R", "MAE_log", "HSS"]
+  
+  targets:
+    PE: 0.80
+    RMSE_log: 0.30
+    Pearson_R: 0.90
+  
+  alert_thresholds:
+    warning_pfu: 1000
+    critical_pfu: 10000
+  
+  storm_threshold_dst: -50  # nT, for storm/quiet split
+
+# =============================================================================
+dashboard:
+  title: "ISRO PS14 - Radiation Environment Forecaster"
+  port: 8501
+  theme: "dark"
