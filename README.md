@@ -1,138 +1,83 @@
-# ISRO PS14 — Forecasting Energetic Particle Radiation Environment
+<div align="center">
+  
+# 🌌 ISRO PS-14: Energetic Particle Radiation Forecasting Pipeline
+**Bharatiya Antariksh Hackathon 2026 Submission by Team Pocket Aces**
 
-## 🛰️ Overview
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=flat&logo=fastapi)](https://fastapi.tiangolo.com/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=flat&logo=streamlit&logoColor=white)](https://streamlit.io/)
+[![Docker](https://img.shields.io/badge/Docker-2CA5E0?style=flat&logo=docker&logoColor=white)](https://www.docker.com/)
 
-AI-powered prediction of **>2 MeV electron fluxes** at geostationary orbit for ISRO's satellite protection. Uses **Transformer** and **LSTM** deep learning models trained on **11 years** of GOES and Wind spacecraft data to forecast radiation fluxes at three horizons:
+An advanced, production-ready Deep Learning pipeline to predict >2 MeV energetic electron fluxes at Geostationary Orbit 30 minutes, 6 hours, and 12 hours in advance.
 
-| Horizon | Use Case |
-|---------|----------|
-| **30 minutes** | Immediate satellite protection alerts |
-| **6 hours** | Medium-term operational planning |
-| **12 hours** | Extended forecast for scheduling |
+</div>
 
-## 🏗️ Architecture
+---
 
-```
-Solar Wind Data (Wind L1) → Feature Engineering (28+ features) → Transformer/LSTM → Multi-Horizon Forecast
-       ↓                          ↓                                    ↓
-   CDF Reader              Physics-based                         30min | 6h | 12h
-   + Preprocessing       (Newell, epsilon,                      electron flux
-                           ULF proxy, etc.)                      prediction
-```
+## 🚀 The Differentiator: Why This Architecture Wins
+Most hackathon projects deliver a "black box" machine learning script. We engineered a **deployment-ready microservice** that provides ISRO operators with absolute trust and transparency.
 
-## 📊 Data Sources
+1. **Simultaneous Multi-Horizon Transformer:** Instead of using LSTMs that accumulate error by predicting step-by-step, our custom Informer-based architecture predicts all three horizons (30m, 6h, 12h) simultaneously.
+2. **Predictive Uncertainty (Risk Bounds):** Space weather operators cannot rely on single-point predictions. We implemented **Monte Carlo Dropout** during inference to generate a 90% Confidence Interval around our forecasts.
+3. **Explainable AI (XAI):** We implemented **Permutation Feature Importance** to mathematically prove to operators *why* the model is predicting a storm. 
+4. **Automated Physics Engineering:** Calculates the Alfvén Mach Number, Dynamic Pressure, and the Newell Coupling Function automatically from raw CDF data.
 
-| Source | Data | Access |
-|--------|------|--------|
-| **GOES-13/15** | >2 MeV electron flux | [SPDF/CDAWeb](https://spdf.gsfc.nasa.gov/pub/data/goes/) |
-| **Wind SWE/MFI** | Solar wind Vsw, Np, IMF | [SPDF/CDAWeb](https://spdf.gsfc.nasa.gov/pub/data/wind/) |
-| **OMNIWeb** | Kp, Dst, AE, SYM-H | [OMNIWeb](https://omniweb.gsfc.nasa.gov/) |
-| **GRASP/GSAT-19** | Electron flux (Indian lon) | [PRADAN](https://pradan.issdc.gov.in) |
+---
 
-## 🚀 Quick Start
+## 🛠️ System Architecture
 
-### 1. Install Dependencies
+### 1. Backend API (`app/api.py`)
+A lightning-fast FastAPI REST API designed to interface directly with automated satellite subsystems.
+*   `GET /predict/latest` - Returns the real-time 30m, 6h, and 12h forecasts alongside their 5th and 95th percentile confidence bounds.
+
+### 2. Operational Dashboard (`app/dashboard.py`)
+A beautiful Streamlit UI designed for control room operators.
+*   Interactive Plotly charts mapping the >2 MeV flux predictions.
+*   Shaded Uncertainty bands to visualize operational risk.
+*   Live Feature Importance bar charts detailing the model's internal logic.
+
+---
+
+## 💻 Quickstart (Run it Yourself)
+
+### Option 1: Docker (Recommended)
+This project is fully containerized. You can run both the REST API and the Dashboard with a single command.
 ```bash
+docker-compose up --build
+```
+*   **Dashboard:** `http://localhost:8501`
+*   **REST API:** `http://localhost:8000/docs`
+
+### Option 2: Local Python Environment
+```bash
+# 1. Clone the repository
+git clone https://github.com/TanmayMahajan26/Team-Pocket-Aces-Bharatiya-Antariksh-Hackathon-2026-ISRO.git
+cd Team-Pocket-Aces-Bharatiya-Antariksh-Hackathon-2026-ISRO
+
+# 2. Create virtual environment & install dependencies
+python -m venv .venv
+source .venv/bin/activate  # Or .venv\Scripts\activate on Windows
 pip install -r requirements.txt
-```
 
-### 2. Download Data
-```bash
-python data/download_data.py
-```
-This downloads ~11 years of GOES, Wind, and OMNIWeb data (~several GB).
-
-### 3. Run Full Pipeline
-```bash
-python main.py --mode full --model both
-```
-
-Or step-by-step:
-```bash
-python main.py --mode download        # Step 1: Download data
-python main.py --mode preprocess      # Step 2: Preprocess
-python main.py --mode train --model transformer  # Step 3: Train
-```
-
-### 4. Launch Dashboard
-```bash
+# 3. Launch the Dashboard
 streamlit run app/dashboard.py
 ```
 
-## 🧠 Models
+---
 
-### Transformer (Primary)
-- Informer-inspired with 4 encoder layers, 8 attention heads
-- d_model=128, dim_ff=512
-- 12-hour lookback (144 steps × 28 features)
-- Pre-LN architecture for training stability
-- Horizon-specific output heads
+## 🧠 Training Pipeline
 
-### LSTM (Baseline)
-- Bidirectional, 2 layers, 128 hidden units
-- Learned attention over sequence
-- 6-hour lookback (72 steps × 28 features)
-
-## 📈 Feature Set (28+ Features)
-
-**Raw inputs**: Electron flux, Vsw, Np, IMF (Bx, By, Bz, Bt), Kp, Dst, AE, SYM-H
-
-**Physics-derived**:
-- Newell coupling function (best SW-magnetosphere coupling metric)
-- Akasofu epsilon (energy input rate)
-- Dynamic pressure, Electric field (Ey)
-- ULF wave proxy, Plasma beta, Alfvén Mach number
-
-**Rolling statistics**: 3h/6h/24h means, minimums, maximums
-
-**Cyclical encodings**: Hour-of-day, day-of-year, 27-day Bartels rotation
-
-## 📋 Evaluation Metrics
-
-| Metric | Description | Target |
-|--------|-------------|--------|
-| **PE** (Prediction Efficiency) | Skill score vs climatology | > 0.80 |
-| **RMSE(log₁₀)** | Error in orders of magnitude | < 0.30 |
-| **Pearson R** | Linear correlation | > 0.90 |
-| **HSS** | Categorical skill (threshold exceedance) | > 0.50 |
-
-## 📁 Project Structure
-
-```
-├── main.py              # Pipeline orchestrator
-├── config.yaml          # All configuration
-├── requirements.txt     # Dependencies
-├── data/
-│   ├── download_data.py # Download script
-│   ├── raw/             # Raw CDF files
-│   └── processed/       # Cleaned Parquet
-├── src/
-│   ├── data/            # CDF reader, downloader, preprocessor, dataset
-│   ├── features/        # Feature engineering
-│   ├── models/          # LSTM, Transformer, trainer
-│   ├── evaluation/      # Metrics, visualizer
-│   └── utils/           # Config, logging
-├── app/
-│   └── dashboard.py     # Streamlit dashboard
-├── notebooks/           # Jupyter notebooks
-├── models/              # Saved checkpoints
-├── outputs/             # Plots, predictions
-└── tests/               # Unit tests
-```
-
-## 🧪 Testing
+Want to train the model from scratch on the 11-year NASA GOES/Wind dataset?
 
 ```bash
-pytest tests/ -v
+# 1. Download 11 years of raw CDF files from NASA SPDF
+python main.py --mode download
+
+# 2. Run the entire pipeline (Preprocess -> Train -> Evaluate -> XAI)
+python main.py --mode full --model both
 ```
 
-## 📜 License
+All models are automatically saved to `models/checkpoints/` and performance metrics/XAI outputs are logged to `outputs/`.
 
-This project is developed for the ISRO national competition (Problem Statement 14).
-
-## 📚 References
-
-1. Newell et al. (2007) - Universal coupling function
-2. Li et al. (2001) - Relativistic electron flux forecasting  
-3. Transformer-based radiation belt forecasting (SWSC, 2024)
-4. GOES Space Environment Monitor documentation (NOAA/NCEI)
+---
+*Built with ❤️ for ISRO.*
