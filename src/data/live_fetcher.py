@@ -4,6 +4,7 @@ import numpy as np
 from datetime import datetime, timezone
 import time
 from typing import Dict, Optional
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from src.utils.logger import get_logger
 
@@ -19,7 +20,9 @@ class LiveDataFetcher:
         self.flux_url = "https://services.swpc.noaa.gov/json/goes/primary/integral-electrons-3-day.json"
         self.plasma_url = "https://services.swpc.noaa.gov/products/solar-wind/plasma-3-day.json"
         self.mag_url = "https://services.swpc.noaa.gov/products/solar-wind/mag-3-day.json"
+        self.connection_status = "CONNECTED"
     
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     def fetch_electron_flux(self) -> pd.DataFrame:
         """Fetch the last 3 days of >2 MeV electron flux from primary GOES."""
         logger.info("Fetching live GOES electron flux...")
@@ -45,6 +48,7 @@ class LiveDataFetcher:
         df = df[~df.index.duplicated(keep='last')]
         return df
         
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     def fetch_solar_wind_plasma(self) -> pd.DataFrame:
         """Fetch live solar wind speed and density."""
         logger.info("Fetching live solar wind plasma...")
@@ -68,6 +72,7 @@ class LiveDataFetcher:
         df = df.rename(columns={'speed': 'Vsw', 'density': 'Np'})
         return df[['Vsw', 'Np']]
         
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     def fetch_solar_wind_mag(self) -> pd.DataFrame:
         """Fetch live solar wind magnetic field."""
         logger.info("Fetching live solar wind magnetic field...")
@@ -84,12 +89,14 @@ class LiveDataFetcher:
         df = df.set_index('datetime').sort_index()
         
         # Convert types
+        df['bx_gsm'] = pd.to_numeric(df['bx_gsm'], errors='coerce')
+        df['by_gsm'] = pd.to_numeric(df['by_gsm'], errors='coerce')
         df['bz_gsm'] = pd.to_numeric(df['bz_gsm'], errors='coerce')
         df['bt'] = pd.to_numeric(df['bt'], errors='coerce')
         
         # Rename to match historical
-        df = df.rename(columns={'bz_gsm': 'Bz', 'bt': 'B'})
-        return df[['Bz', 'B']]
+        df = df.rename(columns={'bx_gsm': 'Bx_GSE', 'by_gsm': 'By_GSM', 'bz_gsm': 'Bz_GSM', 'bt': 'Bt'})
+        return df[['Bx_GSE', 'By_GSM', 'Bz_GSM', 'Bt']]
         
     def get_latest_aligned_data(self, hours_back: int = 12) -> pd.DataFrame:
         """
@@ -100,6 +107,7 @@ class LiveDataFetcher:
             flux_df = self.fetch_electron_flux()
             plasma_df = self.fetch_solar_wind_plasma()
             mag_df = self.fetch_solar_wind_mag()
+            self.connection_status = "CONNECTED"
             
             flux_df.index = flux_df.index.tz_localize(None)
             plasma_df.index = plasma_df.index.tz_localize(None)
@@ -115,12 +123,16 @@ class LiveDataFetcher:
             # Merge all
             merged = pd.merge(flux_5m, sw_5m, left_index=True, right_index=True, how='outer')
             
-            # We don't have real-time OMNIWeb Dst/Kp in this simple JSON, so we approximate
+            # We don't have real-time OMNIWeb indices in this simple JSON, so we approximate
             # or just fill with neutral values since our model relies most heavily on L1 data.
             if 'Dst' not in merged.columns:
                 merged['Dst'] = 0.0
             if 'Kp' not in merged.columns:
                 merged['Kp'] = 1.0
+            if 'AE' not in merged.columns:
+                merged['AE'] = 0.0
+            if 'SYM_H' not in merged.columns:
+                merged['SYM_H'] = 0.0
                 
             # Filter to last N hours
             cutoff = datetime.now(timezone.utc) - pd.Timedelta(hours=hours_back)
@@ -136,7 +148,8 @@ class LiveDataFetcher:
             return merged
             
         except Exception as e:
-            logger.error(f"Live data fetch failed: {e}")
+            logger.error(f"Live data fetch failed after retries: {e}")
+            self.connection_status = "DISCONNECTED"
             return pd.DataFrame()
 
 if __name__ == "__main__":

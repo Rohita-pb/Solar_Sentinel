@@ -1,31 +1,35 @@
 version: '3.8'
 
 services:
+  db:
+    image: timescale/timescaledb:latest-pg15
+    container_name: isro_timescaledb
+    environment:
+      - POSTGRES_USER=isro_admin
+      - POSTGRES_PASSWORD=isro_secure_password
+      - POSTGRES_DB=space_weather
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U isro_admin -d space_weather"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
     build: .
-    container_name: isro-radiation-api
+    container_name: isro_api
     ports:
       - "8000:8000"
-    command: uvicorn app.api:app --host 0.0.0.0 --port 8000
-    volumes:
-      - ./outputs:/app/outputs
-      - ./models:/app/models
+    depends_on:
+      db:
+        condition: service_healthy
     environment:
-      - PYTHONUNBUFFERED=1
+      - DB_URL=postgresql://isro_admin:isro_secure_password@db:5432/space_weather
     restart: always
 
-  frontend:
-    build: .
-    container_name: isro-radiation-dashboard
-    ports:
-      - "8501:8501"
-    command: python -m streamlit run app/dashboard.py --server.fileWatcherType=none --server.address=0.0.0.0
-    volumes:
-      - ./outputs:/app/outputs
-      - ./models:/app/models
-    environment:
-      - PYTHONUNBUFFERED=1
-      - API_URL=http://api:8000
-    depends_on:
-      - api
-    restart: always
+volumes:
+  timescaledb_data:

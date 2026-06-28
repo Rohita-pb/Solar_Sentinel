@@ -1,75 +1,101 @@
-# ISRO PS-14: Energetic Particle Radiation Forecasting Pipeline
-## Architecture & Workflow Documentation
+# ISRO Geostationary Electron Flux Prediction System (PS14)
+**System Architecture & Technical Design Document**
 
-This document explains the entire end-to-end workflow of the deep learning pipeline we are building to predict harsh radiation environments at geostationary orbit. It is designed to help you understand the architecture so you can confidently present it to the judges.
+## 1. System Overview
 
----
+The system is an end-to-end operational ML pipeline designed to forecast >2 MeV electron fluxes at geostationary orbit (GEO). It fulfills ISRO's requirement to provide early warnings (30-45 minutes) and long-term forecasts (6 hours, 12 hours) of harsh radiation environments that could damage satellite electronics. 
 
-### 1. High-Level Objective
-The goal is to predict **>2 MeV energetic electron fluxes** 30 minutes, 6 hours, and 12 hours into the future. 
-High electron flux can cause deep dielectric charging in geostationary satellites (like ISRO's GSAT), potentially causing fatal short-circuits. Predicting these spikes allows satellite operators to put spacecraft into safe modes.
-
----
-
-### 2. The Data Pipeline (ETL: Extract, Transform, Load)
-Raw space weather data is notoriously messy. Our pipeline automates the cleanup.
-
-* **A. Data Extraction (`src/data/downloader.py`):**
-  We connect directly to NASA's SPDF and NOAA servers to download `.cdf` (Common Data Format) files. We pull:
-  *   **GOES:** Electron fluxes (the target we are trying to predict).
-  *   **Wind (SWE & MFI):** Solar wind speed, density, and magnetic field parameters measured at the L1 Lagrange point (1.5 million km away from Earth).
-  *   **GRASP:** ISRO's own GSAT payload data.
-
-* **B. Preprocessing & Cleaning (`src/data/preprocessor.py`):**
-  *   **Spike Removal:** We use sigma-clipping to remove physically impossible instrument noise.
-  *   **Solar Proton Event (SPE) Filtering:** During a solar flare, high-energy protons contaminate electron sensors. We detect proton spikes and mask out the false electron readings.
-  *   **Propagation Delay:** The solar wind takes ~45-60 minutes to travel from the Wind satellite to Earth. The code calculates this delay based on the wind speed ($V_{sw}$) and shifts the timestamps so the data aligns with when the wind actually hits Earth's magnetosphere.
-
-* **C. Feature Engineering (`src/features/feature_engineer.py`):**
-  We generate features that help the neural network understand physics and time:
-  *   **Cyclical Time Encodings:** Using sine/cosine transforms to encode the 24-hour daily cycle, the 27-day solar rotation (Bartels cycle), and the 365-day seasonal cycle.
-  *   **Physics-Based Features:** Calculating the Alfvén Mach number, Dynamic Pressure, and the Newell Coupling Function (which measures how much solar wind energy is entering Earth's magnetic shield).
-  *   **Advanced Signal Processing:** For periods where we only have flux data (like the GRASP dataset), we extract MACD (momentum), Rolling Skewness, and Rolling Kurtosis to detect hidden "brewing" storm signatures before they erupt.
+The architecture is divided into three primary subsystems:
+1. **Historical Data & Training Pipeline** (Data acquisition, Preprocessing, Feature Engineering, Model Training)
+2. **Real-Time Inference Engine** (Live data polling, Dynamic feature generation, PyTorch Inference)
+3. **Serving Layer** (FastAPI REST backend and Streamlit Dashboard)
 
 ---
 
-### 3. The Deep Learning Architecture (The Brains)
-We are training two separate models to forecast the future.
+## 2. Data Pipeline Architecture
 
-* **A. The Transformer Model (`src/models/transformer_model.py`):**
-  This is the crown jewel of the project. Based on the "Informer" architecture, it uses Multi-Head Self-Attention. 
-  Instead of predicting 1 step ahead and feeding it back into itself (which causes compounding errors), it predicts the 30m, 6h, and 12h horizons **simultaneously** in a single forward pass.
+### 2.1 Data Sources
+- **ISRO GRASP / GSAT-19 Payload**: High-resolution localized electron and proton flux data at the Indian longitudinal geostationary sector. Used as the primary ground-truth target.
+- **NASA OMNIWeb / Wind Spacecraft**: High-resolution L1 Lagrangian point solar wind parameters (Speed, Density, IMF components).
+- **NOAA SWPC Real-Time Feeds**: JSON feeds providing real-time solar wind and GOES electron flux for live operational inference.
 
-* **B. The LSTM Model (`src/models/lstm_model.py`):**
-  Long Short-Term Memory networks are the traditional standard for time-series. We use this as a strong baseline to prove to the judges that our Transformer is actually better.
+### 2.2 Data Ingestion (`src/data/downloader.py` & `src/data/cdf_reader.py`)
+- The `DataDownloader` pulls massive archives of `.cdf` files from NASA CDAWeb.
+- The `CDFReader` parses Common Data Format (CDF) files, handling epoch conversions, missing value masking (e.g., `-1e31`), and timezone alignment (forced to UTC).
 
----
+### 2.3 Data Preprocessing (`src/data/preprocessor.py`)
+- **Resampling**: All heterogenous time-series (Wind at 1-min, GOES at 5-min, GRASP at 5-min) are normalized to a strict `5-minute` cadence using forward-filling for small gaps and mean-aggregation for downsampling.
+- **Spike Removal**: Implements IQR-based anomaly detection to remove instrumental artifacts and telemetry noise.
+- **Target Prioritization**: Natively merges GOES and GRASP, prioritizing GRASP data when available to train the model specifically for ISRO's orbital slots.
 
-### 4. Advanced Production Capabilities (How we win)
-To elevate this from a "student project" to a "production-ready operational tool", we added two massive features:
-
-* **A. Predictive Uncertainty (Monte Carlo Dropout):**
-  Space weather operators don't just want a single line; they want risk bounds. During prediction, we keep the model's "Dropout" layers turned on and run the prediction 20 times. This generates a spread of possible futures, allowing us to plot a **90% Confidence Interval** (shaded band) around the prediction.
-
-* **B. Explainable AI / XAI (Permutation Feature Importance):**
-  Neural networks are "black boxes." Judges hate black boxes. 
-  During evaluation, our code systematically shuffles each feature (e.g., mixing up the MACD feature) and measures how much the prediction accuracy drops. If accuracy drops massively, that feature is extremely important. We save these scores to visualize *exactly* how the model makes decisions.
-
----
-
-### 5. The Operational Dashboard (`app/dashboard.py`)
-Finally, all this math is wrapped in a beautiful, interactive Streamlit frontend.
-*   **Data Explorer:** Visualizes the raw time series and features.
-*   **Model Performance:** Displays standard scientific metrics like Prediction Efficiency (PE), RMSE, and Pearson Correlation.
-*   **Predictions:** An interactive Plotly chart showing the actual vs. predicted flux, complete with the 90% uncertainty confidence bands.
-*   **Explainable AI:** Displays the Feature Importance bar chart so judges can see the internal logic of the model.
+### 2.4 Feature Engineering (`src/features/feature_engineer.py`)
+The system extracts 44 advanced physics-based features, though strictly subsets them dynamically based on data availability (falling back to 15 core features when OMNIWeb indices are unavailable).
+* **Core Physics**: `log10_flux`, `Vsw` (Speed), `Np` (Density), `Bt`, `Bx_GSE`, `By_GSM`, `Bz_GSM`.
+* **Cyclical Encoding**: Sin/Cos transformations for `hour`, `doy` (Day of Year), and `bartels` (27-day solar rotation cycle).
+* **Derived Magnetospheric Proxies**:
+  * **Alfvén Mach Number ($M_A$)**: Solar wind speed divided by Alfvén speed.
+  * **Plasma Beta ($\beta$)**: Ratio of thermal to magnetic pressure.
+  * **Akasofu Epsilon ($\epsilon$)**: Energy coupling rate into the magnetosphere.
+  * **Newell Coupling Function**: Best-performing empirical solar wind coupling metric.
+* **Rolling Statistics**: 3-hour and 6-hour moving averages and minimums (e.g., `Bz_min_6h`) to capture the time-history of geomagnetic storms.
 
 ---
 
-### Workflow Summary
-1. `downloader.py` gets the data.
-2. `preprocessor.py` cleans it.
-3. `feature_engineer.py` extracts patterns.
-4. `trainer.py` trains the Transformer and LSTM.
-5. `main.py` runs the evaluation, extracts uncertainty bounds, and scores feature importance.
-6. `dashboard.py` visualizes the entire system for the judges.
+## 3. Machine Learning Architecture
+
+### 3.1 Model Design (`src/models/transformer_model.py`)
+The core prediction engine is a **Time-Series Transformer** implemented in PyTorch. Unlike standard LSTMs, Transformers utilize multi-head self-attention to capture both immediate sudden changes (substorms) and long-term cyclic variations (corotating interaction regions).
+
+**Hyperparameters & Topology:**
+- **Sequence Length**: 72 steps (6 hours of 5-minute data).
+- **Multi-Horizon Output**: Predicts 3 specific timeframes simultaneously:
+  - Horizon 1: +6 steps (30 minutes)
+  - Horizon 2: +72 steps (6 hours)
+  - Horizon 3: +144 steps (12 hours)
+- **Encoder**: 3 layers, 4 attention heads, 64-dimensional model state (`d_model`).
+- **Positional Encoding**: Uses standard sine/cosine absolute positional embeddings to inject temporal order.
+- **Probabilistic Output**: For each horizon, the model outputs 3 values: `[Prediction, Lower_Bound_5%, Upper_Bound_95%]`. This is achieved using a **Quantile Loss Function**.
+
+### 3.2 Loss Function (Quantile Loss)
+Instead of standard MSE, the model uses Pinball/Quantile loss to provide confidence intervals. This is critical for space weather operations, where scientists need to know the *worst-case scenario* (the 95th percentile upper bound) of radiation flux.
+
+### 3.3 Training Loop (`src/models/trainer.py`)
+- **Optimization**: AdamW optimizer with weight decay to prevent overfitting.
+- **Early Stopping**: Halts training if validation loss doesn't improve for 12 epochs.
+- **Metrics**: Evaluates using RMSE, MAE, Pearson Correlation (R), Prediction Efficiency (PE), and Heidke Skill Score (HSS).
+
+---
+
+## 4. Real-Time Operations Architecture
+
+### 4.1 Live Fetcher Daemon (`run_live_service.py` & `src/data/live_fetcher.py`)
+A detached background service that polls NOAA REST APIs every 5 minutes.
+- Fetches real-time GOES >2 MeV flux, Solar Wind Plasma, and Magnetometer data.
+- **Network Resilience**: Employs `tenacity` for exponential backoff. If the NOAA API drops connections, it retries safely and dynamically broadcasts a `DISCONNECTED` state to the database and frontend so scientists know the data is stale.
+- Maps real-time column names (`bz_gsm`, `speed`) to historical model expectations (`Bz_GSM`, `Vsw`).
+- Fills missing values with neutral approximations (e.g., `Dst=0`) to ensure 100% uptime.
+
+### 4.2 Inference Engine (`src/models/live_inference.py`)
+- Loads the fitted `StandardScaler` and applies exactly the same transformations used during training.
+- Constructs the most recent 6-hour sequence tensor.
+- Pushes the sequence through the PyTorch Transformer.
+- Inverse-transforms the predicted `log10_flux` back into physical units (pfu).
+- **Thresholding System**:
+  - **Normal**: Flux < 100 pfu
+  - **Warning**: Flux >= 100 pfu
+  - **Critical**: Flux >= 1000 pfu (Standard NOAA storm threshold).
+
+### 4.3 Scientific Explainability (`src/evaluation/explainability.py`)
+To prevent "black box" syndrome, a PyTorch Saliency Gradient explainer runs in real-time. It executes a backward pass to calculate input gradients against the 95th-percentile (worst-case) forecast. This identifies precisely which physical solar wind features (e.g. `Bz_GSM`, `Vsw`) triggered the alert.
+
+### 4.4 Serving API & TimescaleDB (`api.py` & `src/data/database.py`)
+- **Database Engine**: Uses **TimescaleDB** (PostgreSQL) via SQLAlchemy to permanently log every reading and prediction. Provides historical context to measure model drift. Includes a graceful fallback to an in-process SQLite database if Docker isn't running.
+- **FastAPI Web Server**: Decouples the PyTorch inference engine from the frontend UI.
+- Exposes `GET /api/live` (for real-time dashboard state) and `GET /api/history` (for historical drift tracking). Returns strict JSON schemas including predictions, uncertainty bounds, connection health, and feature explainability.
+
+---
+
+## 5. Deployment & System Requirements
+- **Hardware**: Compatible with CPU-only environments, but optimally run on NVIDIA CUDA-enabled GPUs (e.g., RTX 5060) for millisecond inference latency.
+- **Stack**: Python 3.10+, PyTorch, Scikit-learn, Pandas, FastAPI, SQLAlchemy, PostgreSQL (TimescaleDB), Docker.
+- **Dockerization**: The entire backend and database architecture is fully containerized. Deploying to an ISRO server requires only running `docker-compose up -d --build`. This automatically provisions the database, loads the AI models, and launches the detached polling daemon and FastAPI server.

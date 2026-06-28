@@ -1,83 +1,114 @@
-<div align="center">
-  
-# 🌌 ISRO PS-14: Energetic Particle Radiation Forecasting Pipeline
-**Bharatiya Antariksh Hackathon 2026 Submission by Team Pocket Aces**
+# ISRO PS14: Geostationary Electron Flux Forecasting System
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=flat&logo=fastapi)](https://fastapi.tiangolo.com/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=flat&logo=streamlit&logoColor=white)](https://streamlit.io/)
-[![Docker](https://img.shields.io/badge/Docker-2CA5E0?style=flat&logo=docker&logoColor=white)](https://www.docker.com/)
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
+![PyTorch](https://img.shields.io/badge/PyTorch-Transformer-EE4C2C)
+![FastAPI](https://img.shields.io/badge/FastAPI-Serving-009688)
+![Database](https://img.shields.io/badge/TimescaleDB-PostgreSQL-FDB515)
+![Docker](https://img.shields.io/badge/Docker-Containerized-2496ED)
 
-An advanced, production-ready Deep Learning pipeline to predict >2 MeV energetic electron fluxes at Geostationary Orbit 30 minutes, 6 hours, and 12 hours in advance.
+A state-of-the-art, production-ready machine learning pipeline and real-time backend designed for **ISRO Hackathon Problem Statement 14 (PS14)**. 
 
-</div>
+This system actively monitors L1 solar wind parameters (via NOAA SWPC/NASA OMNIWeb) to forecast hazardous >2 MeV energetic electron flux at geostationary orbit. It provides early warnings 30–45 minutes in advance, alongside long-term 6-hour and 12-hour forecasts, protecting satellite electronics from severe space weather anomalies (e.g., Coronal Mass Ejections, Corotating Interaction Regions).
 
 ---
 
-## 🚀 The Differentiator: Why This Architecture Wins
-Most hackathon projects deliver a "black box" machine learning script. We engineered a **deployment-ready microservice** that provides ISRO operators with absolute trust and transparency.
+## 🚀 Key Features
 
-1. **Simultaneous Multi-Horizon Transformer:** Instead of using LSTMs that accumulate error by predicting step-by-step, our custom Informer-based architecture predicts all three horizons (30m, 6h, 12h) simultaneously.
-2. **Predictive Uncertainty (Risk Bounds):** Space weather operators cannot rely on single-point predictions. We implemented **Monte Carlo Dropout** during inference to generate a 90% Confidence Interval around our forecasts.
-3. **Explainable AI (XAI):** We implemented **Permutation Feature Importance** to mathematically prove to operators *why* the model is predicting a storm. 
-4. **Automated Physics Engineering:** Calculates the Alfvén Mach Number, Dynamic Pressure, and the Newell Coupling Function automatically from raw CDF data.
-
----
-
-## 🛠️ System Architecture
-
-### 1. Backend API (`app/api.py`)
-A lightning-fast FastAPI REST API designed to interface directly with automated satellite subsystems.
-*   `GET /predict/latest` - Returns the real-time 30m, 6h, and 12h forecasts alongside their 5th and 95th percentile confidence bounds.
-
-### 2. Operational Dashboard (`app/dashboard.py`)
-A beautiful Streamlit UI designed for control room operators.
-*   Interactive Plotly charts mapping the >2 MeV flux predictions.
-*   Shaded Uncertainty bands to visualize operational risk.
-*   Live Feature Importance bar charts detailing the model's internal logic.
+* **Time-Series Transformer Engine**: Utilizes a PyTorch multi-head self-attention Transformer, dynamically extracting temporal dependencies over a 6-hour rolling sequence.
+* **Uncertainty Quantification**: Powered by a Quantile/Pinball Loss function. The model doesn't just output a deterministic prediction—it provides strict 95% worst-case upper bound confidence intervals, vital for mission-critical satellite operations.
+* **Real-Time Scientific Explainability**: Extracts PyTorch Saliency Gradients dynamically during inference, explaining exactly *why* an alert was triggered (e.g., "Alert driven by a drop in `Bz_GSM` and high `Alfvén Mach Number`").
+* **Network Resilience**: Employs exponential backoff (`tenacity`) for external NOAA API calls. Broadcasts strict connection health (`CONNECTED` / `DISCONNECTED`) to the frontend if network outages occur, preventing silent "black-box" failures.
+* **TimescaleDB Persistence**: Permanently logs telemetry and predictive drift in a high-performance PostgreSQL time-series database (with seamless fallback to SQLite for local rapid-prototyping).
+* **Dockerized Microservices**: The entire Python API and TimescaleDB infrastructure is fully containerized for one-command deployment to ISRO servers.
 
 ---
 
-## 💻 Quickstart (Run it Yourself)
+## 🛠 Setup & Installation
 
-### Option 1: Docker (Recommended)
-This project is fully containerized. You can run both the REST API and the Dashboard with a single command.
-```bash
-docker-compose up --build
+### Option 1: Docker (Recommended for Production)
+The simplest way to deploy the system, containing both the TimescaleDB database and the FastAPI Backend.
+
+1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop).
+2. Clone the repository and navigate to the project root.
+3. Run the deployment:
+   ```bash
+   docker-compose up -d --build
+   ```
+4. The API is now live at `http://localhost:8000/api/live`
+
+### Option 2: Native Python (Recommended for Development)
+Run directly on your host machine using a virtual environment. The system will gracefully fall back to a local `sqlite:///isro_fallback.db` database automatically.
+
+1. **Create and Activate Virtual Environment**:
+   ```bash
+   python -m venv .venv
+   .\.venv\Scripts\activate   # Windows
+   source .venv/bin/activate  # Linux/Mac
+   ```
+2. **Install Dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   pip install sqlalchemy psycopg2-binary tenacity fastapi uvicorn
+   ```
+3. **Start the Live Daemon** (Polls space weather every 5 minutes):
+   ```bash
+   python run_live_service.py
+   ```
+4. **Start the FastAPI Server** (In a separate terminal):
+   ```bash
+   uvicorn api:app --host 0.0.0.0 --port 8000
+   ```
+
+---
+
+## 📡 API Documentation
+
+The decoupled FastAPI backend serves strict JSON payloads designed for consumption by a modern frontend dashboard (e.g., React, Next.js).
+
+### `GET /api/live`
+Returns the absolute latest real-time forecast.
+```json
+{
+  "timestamp": "2026-06-28T12:00:00+00:00",
+  "latest_data_time": "2026-06-28T11:55:00+00:00",
+  "connection_status": "CONNECTED",
+  "current_flux_gt2MeV": 2.5,
+  "status": "Normal",
+  "predictions_pfu": [5.6, 8.1, 15.2],
+  "p95_pfu": [8.5, 12.0, 28.1],
+  "explainability": {
+    "top_drivers": {
+      "Bz_GSM": 45.2,
+      "Vsw": 22.1,
+      "ULF_proxy": 15.4
+    },
+    "method": "Input Gradients (Saliency) on 95th Percentile 30-min Forecast"
+  }
+}
 ```
-*   **Dashboard:** `http://localhost:8501`
-*   **REST API:** `http://localhost:8000/docs`
 
-### Option 2: Local Python Environment
-```bash
-# 1. Clone the repository
-git clone https://github.com/TanmayMahajan26/Team-Pocket-Aces-Bharatiya-Antariksh-Hackathon-2026-ISRO.git
-cd Team-Pocket-Aces-Bharatiya-Antariksh-Hackathon-2026-ISRO
-
-# 2. Create virtual environment & install dependencies
-python -m venv .venv
-source .venv/bin/activate  # Or .venv\Scripts\activate on Windows
-pip install -r requirements.txt
-
-# 3. Launch the Dashboard
-streamlit run app/dashboard.py
-```
+### `GET /api/history?limit=100`
+Returns an array of historical predictions, allowing the frontend to plot model drift vs. observed flux over time.
 
 ---
 
-## 🧠 Training Pipeline
+## 🏗 Architecture Overview
 
-Want to train the model from scratch on the 11-year NASA GOES/Wind dataset?
+Please see the highly detailed [architecture.md](architecture.md) for a deep dive into the underlying physics logic, data pipeline preprocessing, and mathematical topology of the Transformer model.
 
-```bash
-# 1. Download 11 years of raw CDF files from NASA SPDF
-python main.py --mode download
-
-# 2. Run the entire pipeline (Preprocess -> Train -> Evaluate -> XAI)
-python main.py --mode full --model both
-```
-
-All models are automatically saved to `models/checkpoints/` and performance metrics/XAI outputs are logged to `outputs/`.
+### Subsystem Structure
+- **`src/data/`**: Ingestion of historical CDF files and real-time NOAA JSON feeds. `database.py` manages SQLAlchemy ORM.
+- **`src/features/`**: Implements 44 advanced magnetospheric physics proxies (Akasofu Epsilon, Newell Coupling, Alfvén Mach).
+- **`src/models/`**: PyTorch implementations of the Time-Series Transformer and Model Trainer.
+- **`src/evaluation/`**: Contains metrics (RMSE, HSS, Prediction Efficiency) and the real-time Saliency Explainability module.
+- **`api.py`**: The FastAPI ASGI server.
+- **`run_live_service.py`**: The detached daemon that triggers the feature pipeline and inference loop dynamically.
 
 ---
-*Built with ❤️ for ISRO.*
+
+## 🧪 Testing
+To test the system's ability to trigger alerts under extreme space weather events, run the anomaly injection script:
+```bash
+python test_anomaly.py
+```
+This script dynamically injects a massive simulated Coronal Mass Ejection (CME) into the live data pipeline and verifies that the real-time PyTorch inference engine correctly calculates the physics anomalies, triggers a `CRITICAL` alert, and logs the explainability drivers.

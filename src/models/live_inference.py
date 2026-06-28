@@ -12,6 +12,8 @@ from src.utils.config import Config
 from src.data.live_fetcher import LiveDataFetcher
 from src.features.feature_engineer import FeatureEngineer
 from src.models.transformer_model import TransformerForecaster
+from src.data.database import DatabaseManager
+from src.evaluation.explainability import FeatureExplainer
 
 logger = get_logger(__name__)
 
@@ -26,6 +28,8 @@ class LiveInferenceEngine:
         self.engineer = FeatureEngineer(self.config)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
+        self.db = DatabaseManager()
+        
         # Output paths
         self.output_dir = self.config.root / 'outputs' / 'live'
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -36,7 +40,7 @@ class LiveInferenceEngine:
         if not scaler_path.exists():
             raise FileNotFoundError(f"Scaler not found at {scaler_path}. Must train first.")
         self.engineer.load_scaler(str(scaler_path))
-        self.feature_cols = self.engineer.get_feature_columns()
+        self.feature_cols = self.engineer.feature_columns
         
         # Load best model
         checkpoint_path = self.config.root / 'models' / 'checkpoints' / 'best_transformer.pt'
@@ -46,18 +50,17 @@ class LiveInferenceEngine:
         checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
         metadata = checkpoint.get('metadata', {})
         
-        # Backward compatibility for the old 9-feature model checkpoint
-        if 'num_features' not in metadata:
-            self.feature_cols = ['log10_flux', 'flux_diff_1h', 'flux_rolling_std_6h', 
-                                 'hour_sin', 'hour_cos', 'doy_sin', 'doy_cos', 
-                                 'bartels_sin', 'bartels_cos']
-            num_features = 9
-            self.engineer.feature_columns = self.feature_cols
-        else:
+        state_dict = checkpoint['model_state_dict']
+        input_weight_key = [k for k in state_dict.keys() if 'input_proj' in k and 'weight' in k]
+        if input_weight_key:
+            num_features = state_dict[input_weight_key[0]].shape[1]
+        elif 'num_features' in metadata:
             num_features = metadata['num_features']
+        else:
+            num_features = len(self.feature_cols)
         
         self.model = TransformerForecaster.from_config(self.config._config, num_features=num_features)
-        self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.model.load_state_dict(state_dict)
         self.model = self.model.to(self.device)
         self.model.eval()
         
@@ -118,6 +121,10 @@ class LiveInferenceEngine:
                 
         mc_preds = np.concatenate(all_preds, axis=0) # shape: (samples, horizons)
         
+        # Explainability metrics
+        explainer = FeatureExplainer(self.model, self.feature_cols)
+        explainability = explainer.get_feature_importance(X_tensor)
+        
         mean_pred = np.mean(mc_preds, axis=0)
         p5 = np.percentile(mc_preds, 5, axis=0)
         p95 = np.percentile(mc_preds, 95, axis=0)
@@ -128,30 +135,45 @@ class LiveInferenceEngine:
         # Un-log10 the flux to get raw pfu
         mean_pfu = 10 ** mean_pred
         p95_pfu = 10 ** p95
+        current_flux = float(raw_df['electron_flux_gt2MeV'].iloc[-1])
+        
+        # Determine status
+        status = "Normal"
+        max_monitored = max(mean_pfu[0], current_flux)
+        
+        if max_monitored >= 1000:
+            status = 'CRITICAL'
+        elif max_monitored >= 100:
+            status = 'WARNING'
         
         results = {
             'timestamp': datetime.now(timezone.utc).isoformat(),
             'latest_data_time': latest_time.isoformat(),
-            'current_flux_gt2MeV': float(raw_df['electron_flux_gt2MeV'].iloc[-1]),
+            'current_flux_gt2MeV': current_flux,
             'horizons': ['30min', '6h', '12h'],
             'predictions_log10': mean_pred.tolist(),
             'p5_log10': p5.tolist(),
             'p95_log10': p95.tolist(),
             'predictions_pfu': mean_pfu.tolist(),
             'p95_pfu': p95_pfu.tolist(),
-            'status': 'Normal'
+            'status': status,
+            'connection_status': self.fetcher.connection_status,
+            'explainability': explainability
         }
         
-        # Alert logic based on 95th percentile
-        if any(val > 1000 for val in p95_pfu):
+        # Override with 95th percentile of predictions if worse
+        if any(val > 1000 for val in p95_pfu) and status != 'CRITICAL':
             results['status'] = 'CRITICAL'
-        elif any(val > 100 for val in p95_pfu):
+        elif any(val > 100 for val in p95_pfu) and status == 'Normal':
             results['status'] = 'WARNING'
             
         # Save to state file for dashboard
         with open(self.state_file, 'w') as f:
             json.dump(results, f, indent=2)
             
+        # Save to database
+        self.db.save_prediction(results)
+        
         logger.info(f"Live inference complete. Status: {results['status']}")
         return results
 

@@ -3,25 +3,18 @@ FROM python:3.10-slim
 WORKDIR /app
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    curl \
-    software-properties-common \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y libpq-dev gcc python3-dev && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install
+# Install python dependencies
 COPY requirements.txt .
-# Install specific version of PyTorch for CPU to keep image size small
-RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install fastapi uvicorn pydantic
+RUN pip install sqlalchemy psycopg2-binary tenacity fastapi uvicorn
 
-# Copy source code
+# Copy the rest of the application
 COPY . .
 
-# Expose ports for both FastAPI and Streamlit
+# Expose API port
 EXPOSE 8000
-EXPOSE 8501
 
-# Default command (can be overridden by docker-compose)
-CMD ["uvicorn", "app.api:app", "--host", "0.0.0.0", "--port", "8000"]
+# Start both the daemon and the FastAPI server using a simple bash script or supervisor
+CMD ["sh", "-c", "python run_live_service.py & uvicorn api:app --host 0.0.0.0 --port 8000"]

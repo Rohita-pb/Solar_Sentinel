@@ -81,7 +81,6 @@ class FeatureEngineer:
             valid_pct = df[col].notna().mean() * 100
             logger.debug(f"  {i:2d}. {col:<30s} ({valid_pct:.1f}% valid)")
         
-        self.feature_columns = feature_cols
         return df
     
     # =========================================================================
