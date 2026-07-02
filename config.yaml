@@ -29,8 +29,8 @@ data:
     format: "cdf"  # or "csv"
 
   # Time range
-  start_year: 2017
-  end_year: 2018
+  start_year: 2011
+  end_year: 2019
   resolution_minutes: 5
 
   # Paths
@@ -123,7 +123,7 @@ training:
   batch_size: 128
   learning_rate: 0.001
   weight_decay: 0.00001
-  max_epochs: 2
+  max_epochs: 50
   patience: 12
   grad_clip_norm: 1.0
   
@@ -134,9 +134,9 @@ training:
   
   # Chronological split (no data leakage)
   split:
-    train_years: [2017, 2017]   # Fast train
-    val_years: [2018, 2018]     # Fast val
-    test_years: [2018, 2018]    # Fast test
+    train_years: [2011, 2017]   # 7 years of training data
+    val_years: [2018, 2018]     # 1 year validation
+    test_years: [2019, 2019]    # 1 year testing
   
   # Mixed precision — only activates on CUDA
   use_amp: true

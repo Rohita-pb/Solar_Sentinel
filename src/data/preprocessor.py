@@ -19,6 +19,7 @@ from scipy import interpolate
 from src.utils.logger import get_logger
 from src.utils.config import Config
 from src.data.cdf_reader import CDFReader
+from src.data.csv_loader import load_all_csv_data
 
 logger = get_logger(__name__)
 
@@ -40,13 +41,28 @@ class DataPreprocessor:
     
     def load_all_raw_data(self) -> Dict[str, pd.DataFrame]:
         """
-        Load all raw data from CDF files in data/raw/ directories.
+        Load all raw data from CDF files in data/raw/ directories,
+        or fall back to CSV files in a flat raw/ directory.
         
         Returns:
             Dictionary with DataFrames: 'goes', 'wind_swe', 'wind_mfi', 'omniweb', 'grasp'
         """
         raw_dir = Path(self.config.data.get('raw_dir', 'data/raw'))
         data = {}
+        
+        # =====================================================================
+        # Try flat CSV fallback first (raw/ directory with goes_*.csv / omni_*.csv)
+        # =====================================================================
+        flat_raw_dir = Path('raw')
+        if flat_raw_dir.exists() and list(flat_raw_dir.glob('goes_*.csv')):
+            logger.info("Found flat CSV data in raw/ directory — using CSV loader")
+            csv_data = load_all_csv_data(flat_raw_dir)
+            if csv_data:
+                return csv_data
+        
+        # =====================================================================
+        # Standard CDF loading from structured subdirectories
+        # =====================================================================
         
         # GRASP (ISRO GSAT-19)
         grasp_dir = raw_dir / 'grasp'
@@ -546,7 +562,16 @@ class DataPreprocessor:
                 raw_data['goes'] = raw_data['grasp'].rename(columns={'grasp_electron_flux': 'electron_flux_gt2MeV'})
             else:
                 raise ValueError("GOES electron flux data is required but not found. "
-                               "Run the data downloader first.")
+                               "Run the data downloader first or add CSV files to raw/.")
+        
+        # If OMNI data has solar wind columns (Vsw, Np, Bz_GSM), merge them directly
+        # into the GOES DataFrame instead of expecting separate Wind SWE/MFI sources.
+        if 'omniweb' in raw_data and not raw_data['omniweb'].empty:
+            omni = raw_data['omniweb']
+            solar_wind_cols = [c for c in ['Vsw', 'Np', 'Bz_GSM', 'Pdyn', 'Ey', 'SYM_H', 'AE'] if c in omni.columns]
+            if solar_wind_cols and 'wind_swe' not in raw_data:
+                logger.info(f"OMNI data contains solar wind parameters: {solar_wind_cols}")
+                logger.info("Will merge directly — no separate Wind SWE/MFI needed.")
         
         # Step 2: Spike removal on GOES data
         logger.info("\nStep 2: Removing spikes...")

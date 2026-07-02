@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GeoSat Radiation Forecast Console | ISRO PS14</title>
+    
+    <!-- CSS -->
+    <link rel="stylesheet" href="css/style.css">
+    
+    <!-- Three.js for 3D Globe -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    
+    <!-- Chart.js for visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
+    
+    <!-- D3 for color scales (optional, but good for heatmap stuff) -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <div class="header-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            </div>
+            <div class="header-title-block">
+                <span class="header-subtitle">Pocket Aces / ISRO PS-14</span>
+                <h1 class="header-title">GEOSAT RADIATION FORECAST CONSOLE</h1>
+            </div>
+        </div>
+        
+        <div class="header-center">
+            <div class="header-stat tooltip-container">
+                <span class="header-stat-label">Mission Clock</span>
+                <span class="header-stat-value" id="mission-clock">0000-00-00 00:00:00 UTC</span>
+                <div class="status-tooltip">
+                    <div class="tt-title">TIME SYNCHRONIZATION</div>
+                    <div class="tt-row"><span>Source:</span> <span class="tt-val cyan">GPS Atomic</span></div>
+                    <div class="tt-row"><span>Offset:</span> <span class="tt-val">+0.003ms</span></div>
+                </div>
+            </div>
+            <div class="header-stat tooltip-container">
+                <span class="header-stat-label">DOY</span>
+                <span class="header-stat-value" id="doy-clock">000</span>
+                <div class="status-tooltip">
+                    <div class="tt-title">DAY OF YEAR</div>
+                    <div class="tt-row"><span>Epoch:</span> <span class="tt-val cyan">J2000</span></div>
+                    <div class="tt-row"><span>Leap Secs:</span> <span class="tt-val">37s</span></div>
+                </div>
+            </div>
+            <div class="header-stat tooltip-container">
+                <span class="header-stat-label">Target</span>
+                <span class="header-stat-value">GEO L=6.6 Re</span>
+                <div class="status-tooltip">
+                    <div class="tt-title">ORBITAL PARAMETERS</div>
+                    <div class="tt-row"><span>Radius:</span> <span class="tt-val cyan">42,164 km</span></div>
+                    <div class="tt-row"><span>Inclination:</span> <span class="tt-val">0.0°</span></div>
+                </div>
+            </div>
+            <div class="header-stat tooltip-container">
+                <span class="header-stat-label">Status</span>
+                <span class="header-stat-value safe" id="system-status-indicator">■ SAFE</span>
+                <div class="status-tooltip">
+                    <div class="tt-title">SYSTEM HEALTH</div>
+                    <div class="tt-row"><span>ML Model:</span> <span class="tt-val green">Nominal</span></div>
+                    <div class="tt-row"><span>Data Feed:</span> <span class="tt-val green">Nominal</span></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="header-right">
+            <div class="link-badge" id="api-status">
+                <div class="dot"></div> LINK OK
+            </div>
+            <div class="model-badge" id="active-model">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline;vertical-align:middle;margin-right:4px;"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                Transformer v1
+            </div>
+        </div>
+    </header>
+
+    <!-- Stale Data Warning (Hidden by default) -->
+    <div class="stale-banner" id="stale-banner">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+        WARNING: Live telemetry is stale. Model falling back to autoregressive predictions.
+    </div>
+
+    <!-- Main Dashboard -->
+    <main class="dashboard">
+        
+        <!-- 3D Globe -->
+        <section class="panel globe-section">
+            <div class="panel-label">
+                <svg class="icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                3D View
+            </div>
+            <div class="globe-container" id="globe-container">
+                <!-- Three.js Canvas will be injected here -->
+            </div>
+            <div class="globe-info">
+                <div style="margin-bottom: 6px;">GSAT-19 / GSAT-20 • 74°E LONGITUDE</div>
+                <select id="storm-picker" class="storm-select">
+                    <option value="">Load Historical Storm Event...</option>
+                    <option value="st_patricks_2015">St. Patrick's Day Storm (Mar 2015)</option>
+                    <option value="halloween_2003">Halloween Storms (Oct 2003)</option>
+                    <option value="bastille_2000">Bastille Day Event (Jul 2000)</option>
+                </select>
+            </div>
+            
+            <!-- Live Telemetry Feed -->
+            <div class="telemetry-log">
+                <div class="log-header">LIVE SATELLITE TELEMETRY FEED</div>
+                <div class="log-content">
+                    <div class="log-line"><span class="log-time">[14:02:44Z]</span> <span class="log-msg warning">Kp Index crossed warning threshold (Kp=5.2)</span></div>
+                    <div class="log-line"><span class="log-time">[14:00:12Z]</span> <span class="log-msg">Solar wind speed elevated: 540 km/s</span></div>
+                    <div class="log-line"><span class="log-time">[13:45:00Z]</span> <span class="log-msg">GSAT-19 subsystem health check OK</span></div>
+                    <div class="log-line"><span class="log-time">[13:10:05Z]</span> <span class="log-msg">Model prediction confidence: 94.2%</span></div>
+                    <div class="log-line"><span class="log-time">[12:45:12Z]</span> <span class="log-msg warning">Bz turned southward (-5.2 nT)</span></div>
+                    <div class="log-line"><span class="log-time">[12:15:33Z]</span> <span class="log-msg">Data ingestion complete. 288 samples.</span></div>
+                    <div class="log-line"><span class="log-time">[11:50:22Z]</span> <span class="log-msg">GSAT-20 orientation nominal</span></div>
+                    <div class="log-line"><span class="log-time">[11:20:10Z]</span> <span class="log-msg">Transformer weights synced</span></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Metrics Row -->
+        <section class="metrics-row">
+            <!-- Upload Dataset Panel -->
+            <div class="panel metric-card" style="justify-content: space-between;">
+                <div>
+                    <div class="panel-label">DATA INGESTION</div>
+                    <div style="font-family: var(--font-display); font-size: 1.1rem; font-weight: 700;">UPLOAD DATASET</div>
+                    <div style="font-size: 0.6rem; color: var(--text-dim); margin-top: 4px;">Accepts GOES / Wind CDF (.cdf) or preprocessed CSV</div>
+                </div>
+                
+                <div style="border: 1px dashed var(--border-panel-accent); border-radius: var(--panel-radius); padding: 20px; text-align: center; margin-top: 12px; cursor: pointer; transition: background 0.2s ease;" onmouseover="this.style.background='rgba(0,229,255,0.05)'" onmouseout="this.style.background='transparent'">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 8px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                    <div style="font-size: 0.7rem; font-weight: 600; letter-spacing: 1px;">DROP .CDF / .CSV FILE HERE</div>
+                    <div style="font-size: 0.6rem; color: var(--text-dim); margin-top: 4px;">or click to browse</div>
+                </div>
+            </div>
+
+            <div class="panel metric-card">
+                <div class="panel-label">OBS SAMPLES</div>
+                <div class="metric-value cyan" id="obs-samples-value">---</div>
+                <div class="metric-unit">× 5 min</div>
+                <svg class="metric-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h4l3-9 5 18 3-9h5"/></svg>
+            </div>
+
+            <div class="panel metric-card">
+                <div class="panel-label">CURRENT FLUX</div>
+                <div class="metric-value green" id="current-flux-value">---</div>
+                <div class="metric-unit">e/cm²·s·sr</div>
+                <svg class="metric-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+            </div>
+            
+            <div class="panel metric-card">
+                <div class="panel-label">KP INDEX</div>
+                <div class="metric-value" style="color: var(--magenta);" id="kp-index-value">---</div>
+                <div class="metric-unit">geomagnetic storm level</div>
+                <svg class="metric-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+            </div>
+        </section>
+
+        <!-- Main Forecast Chart -->
+        <section class="panel chart-section">
+            <div class="chart-header">
+                <div class="chart-header-left">
+                    <div class="channel-info">CHANNEL • E &gt; 2 MEV • GOES</div>
+                    <h2>ELECTRON FLUX FORECAST</h2>
+                    <div class="chart-sub">e⁻ / (cm² · s · sr) • log-scale • Transformer w/ 80% confidence band</div>
+                </div>
+                <div class="chart-header-right" style="display: flex; gap: 16px; align-items: center;">
+                    <button id="btn-export-csv" class="btn-outline-small">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                        EXPORT CSV
+                    </button>
+                    <div class="horizon-tabs">
+                        <button class="horizon-tab active" data-horizon="6">30 MIN</button>
+                        <button class="horizon-tab" data-horizon="72">6 HR</button>
+                        <button class="horizon-tab" data-horizon="144">12 HR</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="chart-canvas-wrapper">
+                <canvas id="forecast-chart"></canvas>
+            </div>
+
+            <div class="chart-legend">
+                <div class="legend-item"><div class="legend-line solid"></div> OBSERVED (GOES)</div>
+                <div class="legend-item"><div class="legend-line dashed"></div> FORECAST • 30 MIN</div>
+                <div class="legend-item"><div class="legend-line amber-dashed"></div> ELEVATED THRESHOLD</div>
+                <div class="legend-item"><div class="legend-line red-dashed"></div> SEVERE THRESHOLD</div>
+            </div>
+        </section>
+
+        <!-- Radiation Advisory Panel -->
+        <section class="panel advisory-section">
+            <div class="advisory-status">
+                <div class="advisory-icon nominal" id="advisory-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><polyline points="9 12 11 14 15 10"></polyline></svg>
+                </div>
+                <div class="advisory-text-block">
+                    <div class="advisory-label">RADIATION ADVISORY</div>
+                    <div class="advisory-level nominal" id="advisory-level-text">NOMINAL</div>
+                </div>
+            </div>
+            
+            <div class="advisory-desc" id="advisory-desc-text">
+                Radiation environment nominal. No enhanced surface or deep-dielectric charging expected.
+            </div>
+
+            <div class="advisory-metrics">
+                <div class="advisory-metric">
+                    <div class="adv-label">CURRENT FLUX</div>
+                    <div class="adv-value" style="color: var(--green);" id="adv-current-flux">---</div>
+                    <div class="adv-unit">e/cm²·s·sr</div>
+                </div>
+                <div class="advisory-metric">
+                    <div class="adv-label">THRESHOLD</div>
+                    <div class="adv-value" style="color: var(--text-primary);">1e+3</div>
+                    <div class="adv-unit">e/cm²·s·sr</div>
+                </div>
+                <div class="advisory-metric">
+                    <div class="adv-label">RATIO</div>
+                    <div class="adv-value" style="color: var(--green);" id="adv-ratio">---</div>
+                    <div class="adv-unit">× threshold</div>
+                </div>
+            </div>
+            
+            <div class="advisory-updated" id="advisory-updated-time">UPDATED • ---</div>
+        </section>
+
+        <!-- Solar Wind Drivers -->
+        <section class="drivers-section">
+            <!-- Vsw -->
+            <div class="panel driver-card">
+                <div class="driver-header">
+                    <div>
+                        <div class="driver-name">SOLAR WIND SPEED</div>
+                        <div class="driver-sub">Wind Spacecraft • km / s</div>
+                    </div>
+                    <div class="driver-current">
+                        <div class="driver-value cyan" id="vsw-val">---</div>
+                        <div class="driver-current-label">CURRENT</div>
+                    </div>
+                </div>
+                <div class="driver-chart-mini">
+                    <canvas id="chart-vsw"></canvas>
+                </div>
+            </div>
+
+            <!-- Bz -->
+            <div class="panel driver-card">
+                <div class="driver-header">
+                    <div>
+                        <div class="driver-name">IMF BZ (GSM)</div>
+                        <div class="driver-sub">Wind Spacecraft • nT</div>
+                    </div>
+                    <div class="driver-current">
+                        <div class="driver-value amber" id="bz-val">---</div>
+                        <div class="driver-current-label">CURRENT</div>
+                    </div>
+                </div>
+                
+                <!-- What If Simulator Slider -->
+                <div class="what-if-simulator">
+                    <div class="simulator-header">
+                        <span class="sim-label">"WHAT IF" SIMULATOR</span>
+                        <span class="sim-status" id="sim-status">OFF</span>
+                    </div>
+                    <input type="range" id="bz-slider" min="-20" max="20" value="0" step="1" class="neon-slider">
+                </div>
+
+                <div class="driver-chart-mini" style="height: 50px;">
+                    <canvas id="chart-bz"></canvas>
+                </div>
+            </div>
+
+            <!-- Np -->
+            <div class="panel driver-card">
+                <div class="driver-header">
+                    <div>
+                        <div class="driver-name">PROTON DENSITY</div>
+                        <div class="driver-sub">Wind Spacecraft • n/cc</div>
+                    </div>
+                    <div class="driver-current">
+                        <div class="driver-value magenta" id="np-val" style="color: #ff1744;">---</div>
+                        <div class="driver-current-label">CURRENT</div>
+                    </div>
+                </div>
+                <div class="driver-chart-mini">
+                    <canvas id="chart-np"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Model Performance -->
+        <section class="panel performance-section">
+            <div class="performance-header">
+                <div>
+                    <div class="panel-label">MODEL PERFORMANCE</div>
+                    <h2>TRANSFORMER VALIDATION METRICS</h2>
+                </div>
+                <div class="live-indicator">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                    LIVE
+                </div>
+            </div>
+            
+            <table class="metrics-table">
+                <thead>
+                    <tr>
+                        <th>HORIZON</th>
+                        <th>RMSE (LOG)</th>
+                        <th>MAE (LOG)</th>
+                        <th>R²</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="horizon-cell">30 MIN</td>
+                        <td>0.31</td>
+                        <td>0.22</td>
+                        <td>
+                            <div class="r2-bar">
+                                <div class="r2-bar-track"><div class="r2-bar-fill" style="width: 87%;"></div></div>
+                                <span>0.87</span>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="horizon-cell" style="color: var(--text-primary);">6 HOURS</td>
+                        <td>0.42</td>
+                        <td>0.31</td>
+                        <td>
+                            <div class="r2-bar">
+                                <div class="r2-bar-track"><div class="r2-bar-fill" style="width: 74%; background: var(--amber);"></div></div>
+                                <span>0.74</span>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="horizon-cell" style="color: var(--text-primary);">12 HOURS</td>
+                        <td>0.55</td>
+                        <td>0.41</td>
+                        <td>
+                            <div class="r2-bar">
+                                <div class="r2-bar-track"><div class="r2-bar-fill" style="width: 61%; background: var(--amber);"></div></div>
+                                <span>0.61</span>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="performance-footer">
+                <div class="perf-stat">
+                    <div class="perf-stat-label">TRAINING</div>
+                    <div class="perf-stat-value">662,659 samples • 8 yr GOES</div>
+                </div>
+                <div class="perf-stat">
+                    <div class="perf-stat-label">VALIDATION</div>
+                    <div class="perf-stat-value">141,998 samples • held-out</div>
+                </div>
+            </div>
+            <div class="architecture-info">
+                Architecture: TransformerEncoder(layers=3, heads=4, d_model=64) → Dense(1) • MC-Dropout p=0.1 • Adam • MSE(log10)
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div>© POCKET ACES • ISRO HACKATHON • PS-14</div>
+        <div>SUB-SYSTEM: RADIATION FORECASTING</div>
+        <div>LAST FETCH: <span id="footer-last-fetch">---</span></div>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="js/globe.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
