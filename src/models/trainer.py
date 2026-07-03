@@ -213,6 +213,7 @@ class ModelTrainer:
         self,
         train_loader: DataLoader,
         val_loader: DataLoader,
+        resume: bool = False,
     ) -> Dict:
         """
         Full training loop with early stopping.
@@ -220,6 +221,7 @@ class ModelTrainer:
         Args:
             train_loader: Training DataLoader.
             val_loader: Validation DataLoader.
+            resume: Whether to resume from a previous checkpoint if it exists.
         
         Returns:
             Dictionary with training history.
@@ -233,8 +235,21 @@ class ModelTrainer:
         logger.info("=" * 60)
         
         start_time = time.time()
+        start_epoch = 1
         
-        for epoch in range(1, self.max_epochs + 1):
+        if resume and os.path.exists(self.best_model_path):
+            try:
+                checkpoint = torch.load(self.best_model_path, map_location=self.device, weights_only=False)
+                self.model.load_state_dict(checkpoint['model_state_dict'])
+                self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+                self.best_val_loss = checkpoint['val_loss']
+                start_epoch = checkpoint['epoch'] + 1
+                logger.info(f"Successfully loaded checkpoint from epoch {checkpoint['epoch']} (val_loss: {checkpoint['val_loss']:.5f}). Resuming from epoch {start_epoch}.")
+            except Exception as e:
+                logger.error(f"Failed to load checkpoint for resume: {e}. Starting from scratch.")
+        
+        for epoch in range(start_epoch, self.max_epochs + 1):
             epoch_start = time.time()
             
             # Train

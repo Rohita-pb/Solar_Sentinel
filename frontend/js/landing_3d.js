@@ -4,6 +4,7 @@
 
 let scene, camera, renderer, controls;
 let satellite, earth;
+let isLaunching = false;
 const container = document.getElementById('canvas-container');
 
 // Configuration
@@ -148,51 +149,170 @@ function createSatellite() {
     satellite = new THREE.Group();
     satellite.position.set(config.satellitePos.x, config.satellitePos.y, config.satellitePos.z);
     
-    // Materials
+    // Detailed materials
     const metalMat = new THREE.MeshStandardMaterial({ 
-        color: 0xcccccc, metalness: 0.8, roughness: 0.2 
+        color: 0xdddddd, metalness: 0.9, roughness: 0.15 
+    });
+    const darkMetalMat = new THREE.MeshStandardMaterial({ 
+        color: 0x444444, metalness: 0.8, roughness: 0.4 
+    });
+    const copperMat = new THREE.MeshStandardMaterial({ 
+        color: 0xd47a55, metalness: 0.9, roughness: 0.2 
     });
     const goldFoilMat = new THREE.MeshStandardMaterial({ 
-        color: 0xffaa00, metalness: 0.6, roughness: 0.4, bumpScale: 0.02
+        color: 0xffb700, metalness: 0.7, roughness: 0.35, bumpScale: 0.05
     });
-    const panelMat = new THREE.MeshStandardMaterial({ 
-        color: 0x051020, metalness: 0.9, roughness: 0.1, emissive: 0x002244
+    const solarCellMat = new THREE.MeshStandardMaterial({ 
+        color: 0x0a1c3a, metalness: 0.9, roughness: 0.05, emissive: 0x001122
+    });
+    const glassLensMat = new THREE.MeshStandardMaterial({
+        color: 0x111111, roughness: 0.1, metalness: 0.9
     });
 
-    // Main Body (Hexagonal Cylinder)
-    const bodyGeom = new THREE.CylinderGeometry(1.5, 1.5, 4, 6);
+    // 1. Main Body (Hexagonal Cylinder)
+    const bodyGeom = new THREE.CylinderGeometry(1.4, 1.4, 3.8, 6);
     const body = new THREE.Mesh(bodyGeom, goldFoilMat);
     body.rotation.z = Math.PI / 2;
     satellite.add(body);
 
-    // Solar Panels
-    const panelGeom = new THREE.BoxGeometry(8, 0.1, 2);
-    
-    // Left Wing
-    const leftWing = new THREE.Mesh(panelGeom, panelMat);
-    leftWing.position.set(-6, 0, 0);
-    satellite.add(leftWing);
-    
-    // Right Wing
-    const rightWing = new THREE.Mesh(panelGeom, panelMat);
-    rightWing.position.set(6, 0, 0);
-    satellite.add(rightWing);
+    // End caps for the hexagonal body
+    const capGeom = new THREE.CylinderGeometry(1.45, 1.45, 0.2, 6);
+    const leftCap = new THREE.Mesh(capGeom, metalMat);
+    leftCap.position.set(-1.9, 0, 0);
+    leftCap.rotation.z = Math.PI / 2;
+    satellite.add(leftCap);
 
-    // Antenna Dish
-    const dishGeom = new THREE.SphereGeometry(1, 16, 16, 0, Math.PI);
+    const rightCap = new THREE.Mesh(capGeom, metalMat);
+    rightCap.position.set(1.9, 0, 0);
+    rightCap.rotation.z = Math.PI / 2;
+    satellite.add(rightCap);
+
+    // 2. Solar Panels Assembly (Detailed with cells and frames)
+    // Connecting rods
+    const rodGeom = new THREE.CylinderGeometry(0.12, 0.12, 2.5);
+    
+    const leftRod = new THREE.Mesh(rodGeom, darkMetalMat);
+    leftRod.position.set(-2.5, 0, 0);
+    leftRod.rotation.z = Math.PI / 2;
+    satellite.add(leftRod);
+
+    const rightRod = new THREE.Mesh(rodGeom, darkMetalMat);
+    rightRod.position.set(2.5, 0, 0);
+    rightRod.rotation.z = Math.PI / 2;
+    satellite.add(rightRod);
+
+    // Solar Wings Groups
+    const createSolarWing = (isLeft) => {
+        const wingGroup = new THREE.Group();
+        
+        // Main panel frame (grey metal)
+        const frameGeom = new THREE.BoxGeometry(6.2, 0.08, 2.2);
+        const frame = new THREE.Mesh(frameGeom, darkMetalMat);
+        wingGroup.add(frame);
+
+        // Add 3 separate solar cell panels on top of the frame for realistic segmentation
+        const cellGeom = new THREE.BoxGeometry(1.8, 0.04, 1.95);
+        const cellOffset = [-2, 0, 2];
+        cellOffset.forEach(xOffset => {
+            const cell = new THREE.Mesh(cellGeom, solarCellMat);
+            cell.position.set(xOffset, 0.05, 0);
+            wingGroup.add(cell);
+
+            // Add metallic grid details on top of each cell
+            const gridGeom = new THREE.BoxGeometry(0.02, 0.06, 1.95);
+            const grid1 = new THREE.Mesh(gridGeom, metalMat);
+            grid1.position.set(xOffset - 0.4, 0.05, 0);
+            wingGroup.add(grid1);
+
+            const grid2 = new THREE.Mesh(gridGeom, metalMat);
+            grid2.position.set(xOffset + 0.4, 0.05, 0);
+            wingGroup.add(grid2);
+        });
+
+        // Position the wing group
+        wingGroup.position.set(isLeft ? -6.5 : 6.5, 0, 0);
+        return wingGroup;
+    };
+
+    satellite.add(createSolarWing(true));
+    satellite.add(createSolarWing(false));
+
+    // 3. High-Gain Antenna Dish
+    const dishGeom = new THREE.SphereGeometry(1.1, 24, 24, 0, Math.PI);
     const dish = new THREE.Mesh(dishGeom, metalMat);
-    dish.scale.set(1, 0.3, 1);
-    dish.position.set(0, 1.2, 0);
+    dish.scale.set(1, 0.4, 1);
+    dish.position.set(0, 1.4, 0);
     dish.rotation.x = -Math.PI / 2;
     satellite.add(dish);
 
-    // Sensor / Probe
-    const probeGeom = new THREE.CylinderGeometry(0.1, 0.1, 3);
-    const probe = new THREE.Mesh(probeGeom, metalMat);
-    probe.position.set(2, -1, 0);
-    satellite.add(probe);
+    // Antenna feed horn assembly
+    const hornRodGeom = new THREE.CylinderGeometry(0.04, 0.04, 1.0);
+    const hornRod = new THREE.Mesh(hornRodGeom, darkMetalMat);
+    hornRod.position.set(0, 2.0, 0);
+    satellite.add(hornRod);
 
-    // Subtle floating animation wrapper
+    const hornTipGeom = new THREE.SphereGeometry(0.15, 8, 8);
+    const hornTip = new THREE.Mesh(hornTipGeom, copperMat);
+    hornTip.position.set(0, 2.5, 0);
+    satellite.add(hornTip);
+
+    // 4. Science Instrumentation (Pay Load Boxes / Thrusters / Probes)
+    // Main instrument box (Earth facing)
+    const instBoxGeom = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+    const instBox = new THREE.Mesh(instBoxGeom, metalMat);
+    instBox.position.set(0, -1.5, 0);
+    satellite.add(instBox);
+
+    // Instrument Lens / Sensor aperture
+    const lensGeom = new THREE.CylinderGeometry(0.25, 0.25, 0.3, 16);
+    const lens = new THREE.Mesh(lensGeom, glassLensMat);
+    lens.position.set(0, -1.9, 0);
+    satellite.add(lens);
+
+    // Gold sensor tube
+    const tubeGeom = new THREE.CylinderGeometry(0.15, 0.15, 0.8, 12);
+    const tube = new THREE.Mesh(tubeGeom, goldFoilMat);
+    tube.position.set(0.8, -1.5, 0.3);
+    tube.rotation.x = Math.PI / 4;
+    satellite.add(tube);
+
+    // Magnetometer Boom (Long thin rod)
+    const boomGeom = new THREE.CylinderGeometry(0.05, 0.05, 4.5);
+    const boom = new THREE.Mesh(boomGeom, darkMetalMat);
+    boom.position.set(0, 0, -2.5);
+    boom.rotation.x = Math.PI / 2;
+    satellite.add(boom);
+
+    // Sensor at the end of the boom
+    const boomSensorGeom = new THREE.BoxGeometry(0.4, 0.4, 0.4);
+    const boomSensor = new THREE.Mesh(boomSensorGeom, copperMat);
+    boomSensor.position.set(0, 0, -4.8);
+    satellite.add(boomSensor);
+
+    // 5. Thruster clusters (RCS nozzles)
+    const createThruster = (x, y, z, rx, rz) => {
+        const thrusterGroup = new THREE.Group();
+        const blockGeom = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+        const block = new THREE.Mesh(blockGeom, darkMetalMat);
+        thrusterGroup.add(block);
+
+        const nozzleGeom = new THREE.ConeGeometry(0.08, 0.22, 8);
+        const nozzle = new THREE.Mesh(nozzleGeom, copperMat);
+        nozzle.position.set(0, -0.2, 0);
+        thrusterGroup.add(nozzle);
+
+        thrusterGroup.position.set(x, y, z);
+        thrusterGroup.rotation.set(rx, 0, rz);
+        return thrusterGroup;
+    };
+
+    // Add 4 thruster clusters around the end caps for realistic attitude control
+    satellite.add(createThruster(-1.8, 0.8, 0.8, 0, -Math.PI / 4));
+    satellite.add(createThruster(-1.8, -0.8, -0.8, Math.PI, -Math.PI / 4));
+    satellite.add(createThruster(1.8, 0.8, -0.8, 0, Math.PI / 4));
+    satellite.add(createThruster(1.8, -0.8, 0.8, Math.PI, Math.PI / 4));
+
+    // Wrap in a subtle floating animation group
     const floatWrapper = new THREE.Group();
     floatWrapper.add(satellite);
     scene.add(floatWrapper);
@@ -272,21 +392,24 @@ function onWindowResize() {
 function animate() {
     requestAnimationFrame(animate);
     
-    // Parallax Effect
-    targetX = mouseX * 0.001;
-    targetY = mouseY * 0.001;
-    
-    if (starGroup) {
-        starGroup.rotation.y += 0.05 * (targetX - starGroup.rotation.y);
-        starGroup.rotation.x += 0.05 * (targetY - starGroup.rotation.x);
+    if (!isLaunching) {
+        // Parallax Effect
+        targetX = mouseX * 0.001;
+        targetY = mouseY * 0.001;
+        
+        if (starGroup) {
+            starGroup.rotation.y += 0.05 * (targetX - starGroup.rotation.y);
+            starGroup.rotation.x += 0.05 * (targetY - starGroup.rotation.x);
+        }
+        
+        // Slight camera movement based on mouse
+        camera.position.x += (mouseX * 0.01 - camera.position.x + config.cameraStart.x) * 0.05;
+        camera.position.y += (-mouseY * 0.01 - camera.position.y + config.cameraStart.y) * 0.05;
+        camera.lookAt(config.satellitePos.x, config.satellitePos.y, config.satellitePos.z);
+        
+        controls.update();
     }
     
-    // Slight camera movement based on mouse
-    camera.position.x += (mouseX * 0.01 - camera.position.x + config.cameraStart.x) * 0.05;
-    camera.position.y += (-mouseY * 0.01 - camera.position.y + config.cameraStart.y) * 0.05;
-    camera.lookAt(config.satellitePos.x, config.satellitePos.y, config.satellitePos.z);
-    
-    controls.update();
     renderer.render(scene, camera);
 }
 
@@ -307,28 +430,78 @@ function onLaunchClick() {
 
     // 2. Disable orbit controls
     controls.enabled = false;
+    isLaunching = true;
 
-    // 3. Animate Camera to zoom past the satellite, toward the Earth
-    // We calculate a position very close to the Earth's surface
-    const targetZ = config.earthPos.z + 32; // Just above the 30 radius sphere
+    // Stop existing GSAP float and rotation tweens on satellite
+    gsap.killTweensOf(satellite.position);
+    gsap.killTweensOf(satellite.rotation);
+
+    // 3. Animate Satellite revolving around Earth, and Camera following it
+    const animState = { pct: 0 };
     
-    gsap.to(camera.position, {
-        x: config.earthPos.x,
-        y: config.earthPos.y,
-        z: targetZ,
-        duration: 2.0,
-        ease: "power3.in",
+    // Calculate initial relative values
+    const relX = config.satellitePos.x - config.earthPos.x;
+    const relY = config.satellitePos.y - config.earthPos.y;
+    const relZ = config.satellitePos.z - config.earthPos.z;
+    const initialRadius = Math.sqrt(relX * relX + relY * relY + relZ * relZ);
+    const targetRadius = 34.0; // Just above Earth's surface (radius 30)
+
+    const startAngle = Math.atan2(relZ, relX);
+    const startY = config.satellitePos.y;
+    const endY = config.earthPos.y;
+
+    gsap.to(animState, {
+        pct: 1,
+        duration: 3.5,
+        ease: "power2.inOut",
         onUpdate: () => {
-            // Keep looking at Earth as we fly towards it
-            camera.lookAt(config.earthPos.x, config.earthPos.y, config.earthPos.z);
+            const t = animState.pct;
+            
+            // Revolve: 1.5 full revolutions around the Earth
+            const angle = startAngle + t * Math.PI * 3.0; 
+            
+            // Spiral inward: start at initialRadius, end near the Earth
+            const r = initialRadius * (1 - t) + targetRadius * t;
+            
+            // Update satellite position
+            const x = config.earthPos.x + Math.cos(angle) * r;
+            const z = config.earthPos.z + Math.sin(angle) * r;
+            const y = startY * (1 - t) + endY * t;
+            
+            satellite.position.set(x, y, z);
+            
+            // Orient the satellite to look towards the center of Earth
+            satellite.lookAt(config.earthPos.x, config.earthPos.y, config.earthPos.z);
+            satellite.rotation.z += 0.05; // Spin on its axis for realistic touch
+
+            // Camera follow: trails slightly behind the satellite along the orbit
+            const trailAngle = angle - 0.4 * (1 - t);
+            const camR = r + 15 * (1 - t) + 4 * t;
+            const camX = config.earthPos.x + Math.cos(trailAngle) * camR;
+            const camZ = config.earthPos.z + Math.sin(trailAngle) * camR;
+            const camY = y + 8 * (1 - t) + 2 * t;
+
+            camera.position.set(camX, camY, camZ);
+            
+            // Near the end of the transition, the camera dives into the Earth
+            if (t > 0.85) {
+                const blend = (t - 0.85) / 0.15; // 0 to 1
+                camera.lookAt(
+                    config.earthPos.x * blend + satellite.position.x * (1 - blend),
+                    config.earthPos.y * blend + satellite.position.y * (1 - blend),
+                    config.earthPos.z * blend + satellite.position.z * (1 - blend)
+                );
+            } else {
+                camera.lookAt(satellite.position);
+            }
         }
     });
 
     // 4. White flash transition overlay
     gsap.to('#transition-overlay', {
         opacity: 1,
-        duration: 0.4,
-        delay: 1.8, // Trigger right before camera hits Earth
+        duration: 0.5,
+        delay: 3.1, // Trigger right as we dive into Earth
         ease: "power2.in",
         onComplete: () => {
             // 5. Redirect to Dashboard

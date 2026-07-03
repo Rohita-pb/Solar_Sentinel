@@ -127,6 +127,7 @@ def run_training(
     df: pd.DataFrame,
     feature_cols: list,
     model_type: str = 'both',
+    resume: bool = False,
 ) -> dict:
     """Step 4: Train models."""
     logger.info("=" * 70)
@@ -149,7 +150,7 @@ def run_training(
         
         # Train
         trainer = ModelTrainer(model, config, model_name='transformer')
-        history = trainer.train(train_loader, val_loader)
+        history = trainer.train(train_loader, val_loader, resume=resume)
         
         # Test predictions
         test_preds, test_targets, test_uncertainties = trainer.predict(test_loader)
@@ -195,7 +196,7 @@ def run_training(
         
         # Train
         trainer_lstm = ModelTrainer(model_lstm, config, model_name='lstm')
-        history_lstm = trainer_lstm.train(train_loader_lstm, val_loader_lstm)
+        history_lstm = trainer_lstm.train(train_loader_lstm, val_loader_lstm, resume=resume)
         
         # Test predictions
         test_preds_lstm, test_targets_lstm, test_uncertainties_lstm = trainer_lstm.predict(test_loader_lstm)
@@ -341,6 +342,7 @@ def main(
     config_path: str = None,
     model_type: str = 'both',
     skip_download: bool = False,
+    resume: bool = False,
 ):
     """
     Run the ISRO PS14 pipeline.
@@ -350,6 +352,7 @@ def main(
         config_path: Path to config.yaml
         model_type: 'transformer', 'lstm', or 'both'
         skip_download: Skip data download step
+        resume: Resume training from existing checkpoint
     """
     # Setup
     config = Config(config_path)
@@ -391,7 +394,7 @@ def main(
     
     if mode in ['full', 'train']:
         # Training
-        training_results = run_training(config, df_featured, feature_cols, model_type)
+        training_results = run_training(config, df_featured, feature_cols, model_type, resume=resume)
         
         # Evaluation
         all_metrics = run_evaluation(config, training_results)
@@ -429,6 +432,10 @@ if __name__ == "__main__":
         '--skip-download', action='store_true',
         help='Skip data download step'
     )
+    parser.add_argument(
+        '--resume', action='store_true',
+        help='Resume training from existing checkpoint'
+    )
     
     args = parser.parse_args()
     main(
@@ -436,4 +443,5 @@ if __name__ == "__main__":
         config_path=args.config,
         model_type=args.model,
         skip_download=args.skip_download,
+        resume=args.resume,
     )
