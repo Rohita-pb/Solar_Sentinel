@@ -328,7 +328,7 @@ function updateDashboardUI(data) {
     updateTelemetryLog(displayBz, data.current_conditions.electron_flux_gt2MeV);
     
     // Update Kp Index
-    if (ui.kpIndex && data.current_conditions.Kp) {
+    if (ui.kpIndex && data.current_conditions.Kp !== undefined && data.current_conditions.Kp !== null) {
         const kp = data.current_conditions.Kp.toFixed(1);
         ui.kpIndex.textContent = kp;
         flashValue(ui.kpIndex);

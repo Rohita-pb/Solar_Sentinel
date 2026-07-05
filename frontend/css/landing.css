@@ -50,6 +50,21 @@ body {
     pointer-events: none;
 }
 
+/* Scanline overlay for high-tech CRT monitor aesthetic */
+body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: linear-gradient(
+        rgba(18, 16, 16, 0) 50%, 
+        rgba(0, 0, 0, 0.25) 50%
+    );
+    background-size: 100% 4px;
+    z-index: 9999;
+    pointer-events: none;
+    opacity: 0.12;
+}
+
 /* ... except for interactive elements */
 .nav-bar, .hero-content, #content-layer {
     pointer-events: auto; 
@@ -62,6 +77,8 @@ body {
     align-items: center;
     padding: 24px 48px;
     background: linear-gradient(180deg, rgba(5,8,16,0.8) 0%, transparent 100%);
+    position: relative;
+    z-index: 30;
 }
 
 .logo {
@@ -216,7 +233,7 @@ body {
     background: rgba(0, 229, 255, 0.1);
     border-color: var(--cyan);
     transform: translateY(-5px);
-    box-shadow: 0 10px 20px rgba(0, 229, 255, 0.1);
+    box-shadow: 0 10px 20px rgba(0, 229, 255, 0.15), 0 0 10px rgba(0, 229, 255, 0.1);
 }
 
 .tile-icon {
@@ -248,11 +265,11 @@ body {
 }
 
 .hud-element.top-left {
-    top: 10%; /* Moved higher to completely avoid Orbital Intel text */
+    top: 32px; /* Positioned safely above the header block */
     left: 48px;
     border-left: 1px solid var(--cyan-dim);
     padding-left: 12px;
-    z-index: 5;
+    z-index: 25; /* Placed above main title */
 }
 
 .hud-line {
@@ -279,15 +296,15 @@ body {
     font-size: 0.8rem;
 }
 
+/* HUD Crosshair */
 .crosshair {
-    position: absolute;
-    top: 50%;
-    left: 70%;
-    width: 60px;
-    height: 60px;
-    transform: translate(-50%, -50%);
+    position: fixed;
+    width: 50px;
+    height: 50px;
     pointer-events: none;
-    opacity: 0.3;
+    opacity: 0.45;
+    z-index: 100;
+    transform: translate(-50%, -50%);
 }
 
 .crosshair::before, .crosshair::after {
@@ -297,6 +314,17 @@ body {
 }
 .crosshair::before { top: 50%; left: 0; width: 100%; height: 1px; }
 .crosshair::after { top: 0; left: 50%; width: 1px; height: 100%; }
+
+.crosshair-corner {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    border: 1.5px solid var(--cyan);
+}
+.crosshair-corner.tl { top: 0; left: 0; border-right: none; border-bottom: none; }
+.crosshair-corner.tr { top: 0; right: 0; border-left: none; border-bottom: none; }
+.crosshair-corner.bl { bottom: 0; left: 0; border-right: none; border-top: none; }
+.crosshair-corner.br { bottom: 0; right: 0; border-left: none; border-top: none; }
 
 /* ============================================================
    Scrollable Content Sections

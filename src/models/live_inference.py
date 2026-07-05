@@ -132,9 +132,15 @@ class LiveInferenceEngine:
         # 5. Format results
         latest_time = seq_df.index[-1]
         
-        # Un-log10 the flux to get raw pfu
-        mean_pfu = 10 ** mean_pred
-        p95_pfu = 10 ** p95
+        # Un-normalize log10 predictions and convert to raw physical flux (pfu)
+        mean_pfu = self.engineer.inverse_transform_flux(mean_pred)
+        p5_pfu = self.engineer.inverse_transform_flux(p5)
+        p95_pfu = self.engineer.inverse_transform_flux(p95)
+        
+        mean_log10 = np.log10(np.clip(mean_pfu, 1e-10, None))
+        p5_log10 = np.log10(np.clip(p5_pfu, 1e-10, None))
+        p95_log10 = np.log10(np.clip(p95_pfu, 1e-10, None))
+        
         current_flux = float(raw_df['electron_flux_gt2MeV'].iloc[-1])
         
         # Determine status
@@ -151,9 +157,9 @@ class LiveInferenceEngine:
             'latest_data_time': latest_time.isoformat(),
             'current_flux_gt2MeV': current_flux,
             'horizons': ['30min', '6h', '12h'],
-            'predictions_log10': mean_pred.tolist(),
-            'p5_log10': p5.tolist(),
-            'p95_log10': p95.tolist(),
+            'predictions_log10': mean_log10.tolist(),
+            'p5_log10': p5_log10.tolist(),
+            'p95_log10': p95_log10.tolist(),
             'predictions_pfu': mean_pfu.tolist(),
             'p95_pfu': p95_pfu.tolist(),
             'status': status,

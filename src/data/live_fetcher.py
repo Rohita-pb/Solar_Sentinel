@@ -148,8 +148,47 @@ class LiveDataFetcher:
             return merged
             
         except Exception as e:
-            logger.error(f"Live data fetch failed after retries: {e}")
+            logger.error(f"Live data fetch failed after retries: {e}. Falling back to cached historical data.")
             self.connection_status = "DISCONNECTED"
+            try:
+                from pathlib import Path
+                cache_path = Path("data/processed/merged_dataset.parquet")
+                if cache_path.exists():
+                    logger.info("Loading offline fallback from merged_dataset.parquet...")
+                    df = pd.read_parquet(cache_path)
+                    
+                    # Take at least 36 hours to allow sufficient window size for rolling calculations
+                    effective_hours = max(hours_back, 36)
+                    num_rows = effective_hours * 12 # 5-min intervals
+                    df_subset = df.iloc[-num_rows:].copy()
+                    
+                    # Fill internal NaNs
+                    df_subset = df_subset.ffill().bfill()
+                    
+                    # Shift index to current time
+                    now = datetime.now()
+                    new_index = pd.date_range(end=now, periods=len(df_subset), freq='5min')
+                    df_subset.index = new_index
+                    
+                    # Align column names to what the pipeline expects
+                    col_mapping = {
+                        'speed': 'Vsw',
+                        'density': 'Np',
+                        'bz_gsm': 'Bz_GSM',
+                        'bx_gsm': 'Bx_GSE',
+                        'by_gsm': 'By_GSM',
+                        'bt': 'Bt'
+                    }
+                    df_subset = df_subset.rename(columns={k: v for k, v in col_mapping.items() if k in df_subset.columns})
+                    
+                    # Fill any missing columns
+                    for col in ['Dst', 'Kp', 'AE', 'SYM_H', 'electron_flux_gt2MeV', 'Vsw', 'Np', 'Bz_GSM', 'Bt', 'Bx_GSE', 'By_GSM']:
+                        if col not in df_subset.columns:
+                            df_subset[col] = 0.0
+                            
+                    return df_subset
+            except Exception as fallback_err:
+                logger.error(f"Failed to load fallback cache data: {fallback_err}")
             return pd.DataFrame()
 
 if __name__ == "__main__":

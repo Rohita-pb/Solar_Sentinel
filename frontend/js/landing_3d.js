@@ -7,6 +7,13 @@ let satellite, earth;
 let isLaunching = false;
 const container = document.getElementById('canvas-container');
 
+// HUD Crosshair magnetic tracking
+let rawMouseX = window.innerWidth / 2;
+let rawMouseY = window.innerHeight / 2;
+let crosshairX = window.innerWidth / 2;
+let crosshairY = window.innerHeight / 2;
+let solarWindParticles;
+
 // Configuration
 const config = {
     cameraStart: { x: 20, y: 10, z: 40 },
@@ -72,13 +79,44 @@ function init() {
     // 8. Create Starfield & Nebulas
     createStarfield();
 
+    // 8b. Create Solar Wind Particle Stream
+    createSolarWind();
+
     // 9. Event Listeners
     window.addEventListener('resize', onWindowResize);
     document.addEventListener('mousemove', onMouseMove);
     document.getElementById('launch-btn').addEventListener('click', onLaunchClick);
+
+    // 10. Smooth Scrolling for Navigation Links & Tiles
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+        anchor.addEventListener('click', function (e) {
+            e.preventDefault();
+            const targetId = this.getAttribute('href');
+            const targetElement = document.querySelector(targetId);
+            if (targetElement) {
+                const targetPosition = targetElement.getBoundingClientRect().top + window.pageYOffset;
+                const startPosition = window.pageYOffset;
+                
+                const scrollObj = { value: startPosition };
+                gsap.to(scrollObj, {
+                    value: targetPosition,
+                    duration: 1.2,
+                    ease: "power3.inOut",
+                    onUpdate: () => {
+                        window.scrollTo(0, scrollObj.value);
+                    }
+                });
+            }
+        });
+    });
 }
 
 function onMouseMove(event) {
+    // Keep raw coordinates for the magnetic HUD crosshair follower
+    rawMouseX = event.clientX;
+    rawMouseY = event.clientY;
+
+    // Keep relative coordinates for 3D camera parallax
     mouseX = (event.clientX - windowHalfX);
     mouseY = (event.clientY - windowHalfY);
 }
@@ -392,6 +430,18 @@ function onWindowResize() {
 function animate() {
     requestAnimationFrame(animate);
     
+    // Animate crosshair magnetic lag
+    const crosshair = document.getElementById('hud-crosshair');
+    if (crosshair) {
+        crosshairX += (rawMouseX - crosshairX) * 0.15;
+        crosshairY += (rawMouseY - crosshairY) * 0.15;
+        crosshair.style.left = `${crosshairX}px`;
+        crosshair.style.top = `${crosshairY}px`;
+    }
+
+    // Animate Solar Wind Particle Stream
+    animateSolarWind();
+    
     if (!isLaunching) {
         // Parallax Effect
         targetX = mouseX * 0.001;
@@ -473,7 +523,7 @@ function onLaunchClick() {
             // Orient the satellite to look towards the center of Earth
             satellite.lookAt(config.earthPos.x, config.earthPos.y, config.earthPos.z);
             satellite.rotation.z += 0.05; // Spin on its axis for realistic touch
-
+ 
             // Camera follow: trails slightly behind the satellite along the orbit
             const trailAngle = angle - 0.4 * (1 - t);
             const camR = r + 15 * (1 - t) + 4 * t;
@@ -508,4 +558,74 @@ function onLaunchClick() {
             window.location.href = "index.html";
         }
     });
+}
+
+// ============================================================
+// Solar Wind Particle System
+// ============================================================
+
+function createSolarWind() {
+    const particleCount = 200;
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+    const speeds = new Float32Array(particleCount);
+    
+    for (let i = 0; i < particleCount; i++) {
+        // Wide flow streaming from left (x = -80) to right (x = 80)
+        positions[i * 3] = (Math.random() - 0.5) * 160; 
+        positions[i * 3 + 1] = (Math.random() - 0.5) * 60; 
+        positions[i * 3 + 2] = (Math.random() - 0.5) * 40; 
+        
+        speeds[i] = 0.2 + Math.random() * 0.4;
+    }
+    
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    
+    // Procedural cyan glowing canvas texture
+    const canvas = document.createElement('canvas');
+    canvas.width = 16;
+    canvas.height = 16;
+    const ctx = canvas.getContext('2d');
+    const grad = ctx.createRadialGradient(8, 8, 0, 8, 8, 8);
+    grad.addColorStop(0, 'rgba(0, 229, 255, 1)'); 
+    grad.addColorStop(0.3, 'rgba(0, 150, 255, 0.6)');
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 16, 16);
+    
+    const texture = new THREE.CanvasTexture(canvas);
+    const material = new THREE.PointsMaterial({
+        size: 0.8,
+        map: texture,
+        transparent: true,
+        opacity: 0.7,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+    });
+    
+    solarWindParticles = new THREE.Points(geometry, material);
+    scene.add(solarWindParticles);
+    
+    solarWindParticles.userData = { speeds: speeds };
+}
+
+function animateSolarWind() {
+    if (!solarWindParticles) return;
+    
+    const positions = solarWindParticles.geometry.attributes.position.array;
+    const speeds = solarWindParticles.userData.speeds;
+    
+    for (let i = 0; i < speeds.length; i++) {
+        // Move particles along X axis from left to right
+        positions[i * 3] += speeds[i];
+        
+        // Recycle particles
+        if (positions[i * 3] > 80) {
+            positions[i * 3] = -80;
+            positions[i * 3 + 1] = (Math.random() - 0.5) * 60;
+            positions[i * 3 + 2] = (Math.random() - 0.5) * 40;
+        }
+    }
+    
+    solarWindParticles.geometry.attributes.position.needsUpdate = true;
 }
